@@ -1,38 +1,55 @@
 package com.github.BrandtNganjo.LogicLab.UI;
 
+import com.github.BrandtNganjo.LogicLab.logic.Circuit;
+import com.github.BrandtNganjo.LogicLab.logic.LogicSim;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.List;
 
+
 public class GraphPanel extends JPanel {
 
-    public List<Node> nodes = new ArrayList<>();
-    public List<Wire> wires = new ArrayList<>();
+    public final Circuit circuit;
+    public final LogicSim simulator;
 
-    private Node draggedNode = null;
+    private Node draggedNode;
+
     private int dragOffsetX;
     private int dragOffsetY;
 
-    private Pin wiringFrom = null;
+    private Pin wiringFrom;
+    private Pin hoveredPin;
 
     private int mouseX;
     private int mouseY;
 
-    private Pin hoveredPin = null;
 
     public GraphPanel() {
         setBackground(new Color(30, 30, 30));
+        this.circuit = new Circuit();
+        this.simulator = new LogicSim(circuit);
 
-        nodes.add(new GateNode(300, 200, 5, 1, "NAND"));
-        nodes.add(new GateNode(500, 250, 2, 1, "NAND"));
-
-        nodes.add(new IONode(100, 150, true));
-        nodes.add(new IONode(100, 300, true));
-        nodes.add(new IONode(700, 250, false));
-
+        IONode a = new IONode(80, 150, true);
+        IONode b = new IONode(80, 300, true);
+        NANDNode nand = new NANDNode(300, 210);
+        NANDNode nand2 = new NANDNode(300, 410);
+        IONode output = new IONode(550,235,false);
+        addNode(a);
+        addNode(b);
+        addNode(nand);
+        addNode(nand2);
+        addNode(output);
+        //add and connect nodes
+        simulator.evaluateAll();
         initiateMouseListeners();
+    }
+
+    public void addNode(Node node) {
+        node.setSimulator(simulator);
+        circuit.addNode(node);
     }
 
     private void initiateMouseListeners() {
@@ -65,9 +82,9 @@ public class GraphPanel extends JPanel {
                         return;
                     }
 
-                    for(int i = nodes.size() - 1; i >= 0; i--) {
+                    for(int i = circuit.getNodes().size() - 1; i >= 0; i--) {
 
-                        Node n = nodes.get(i);
+                        Node n = circuit.getNodes().get(i);
 
                         if (n.contains(e.getX(), e.getY())) {
 
@@ -76,8 +93,7 @@ public class GraphPanel extends JPanel {
                             dragOffsetX = e.getX() - n.x;
                             dragOffsetY = e.getY() - n.y;
 
-                            nodes.remove(i);
-                            nodes.add(n);
+                            circuit.bringNodeToFront(n);
 
                             repaint();
                             return;
@@ -151,9 +167,9 @@ public class GraphPanel extends JPanel {
 
     private Pin getPinAt(int x, int y) {
 
-        for(int i = nodes.size() - 1; i >= 0; i--) {
+        for(int i = circuit.getNodes().size() - 1; i >= 0; i--) {
 
-            Pin pin = nodes.get(i).getPinAt(x, y);
+            Pin pin = circuit.getNodes().get(i).getPinAt(x, y);
 
             if(pin != null) {
                 return pin;
@@ -165,7 +181,7 @@ public class GraphPanel extends JPanel {
 
     private Pin findInputAt(int x, int y) {
 
-        for(Node node : nodes) {
+        for(Node node : circuit.getNodes()) {
 
             for(Pin pin : node.inputs) {
 
@@ -179,15 +195,13 @@ public class GraphPanel extends JPanel {
     }
 
     private void connect(Pin output, Pin input) {
-
-        if(output.parent == input.parent) {
-            return;
+        try {
+            circuit.connect(output, input);
+            simulator.processQueue();
+        } catch(IllegalArgumentException e) {
+            System.out.println(e.getMessage());
         }
-
-        wires.removeIf(w -> w.end == input);
-
-        wires.add(new Wire(output, input));
-        System.out.println("New wire created");
+        repaint();
     }
 
     private void handleRightClick(int x, int y) {
@@ -195,25 +209,33 @@ public class GraphPanel extends JPanel {
         Pin pin = getPinAt(x, y);
 
         if(pin != null) {
-
-            if(pin.isOutput) {
-                wires.removeIf(w -> w.start == pin);
+            if (pin.isOutput
+                    && pin.parent instanceof IONode io
+                    && io.isInput()) {
+                io.toggleState();
+                simulator.processQueue();
                 repaint();
                 return;
             }
+
+            circuit.removeConnectionsAt(pin);
+            simulator.processQueue();
+            repaint();
+            return;
         }
 
-        Wire wire = findWireAt(x, y);
+        Wire wire = findWireAt(x,y);
 
         if(wire != null) {
-            wires.remove(wire);
+            circuit.removeWire(wire);
+            simulator.processQueue();
             repaint();
         }
     }
 
     private Wire findWireAt(int x, int y) {
 
-        for(Wire wire : wires) {
+        for(Wire wire : circuit.getWires()) {
 
             if(distanceToLineSegment(
                     x,
@@ -271,14 +293,14 @@ public class GraphPanel extends JPanel {
         );
 
         // Render all Nodes
-        for(Node n : nodes) {
+        for(Node n : circuit.getNodes()) {
             n.draw(g2d);
         }
 
         //Render all wires
         g2d.setStroke(new BasicStroke(3));
 
-        for(Wire w : wires) {
+        for(Wire w : circuit.getWires()) {
 
             g2d.setColor(Color.LIGHT_GRAY);
 
@@ -304,7 +326,7 @@ public class GraphPanel extends JPanel {
 
         // Draw all pins
 
-        for(Node n : nodes) {
+        for(Node n : circuit.getNodes()) {
             n.drawPins(g2d);
         }
 

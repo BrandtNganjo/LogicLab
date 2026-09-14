@@ -8,4 +8,12 @@ public class Wire {
         this.start = start;
         this.end = end;
     }
+
+    public boolean push() {
+        boolean changed = end.setState(start.getState());
+        if(changed) {
+            end.parent.markForUpdate();
+        }
+        return changed;
+    }
 }
